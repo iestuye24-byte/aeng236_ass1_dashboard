@@ -1154,5 +1154,7 @@ def close_modal(n_clicks, is_open):
     return is_open
 
 
+server = app.server  # Expose the underlying Flask server for gunicorn
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False, host="0.0.0.0", port=8080)
