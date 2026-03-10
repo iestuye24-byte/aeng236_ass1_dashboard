@@ -1,7 +1,6 @@
 import dash
 from dash import dcc, html, Input, Output, State
 import dash_bootstrap_components as dbc
-import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
@@ -9,64 +8,59 @@ import numpy as np
 import os
 import itertools
 
+# =============================================================================
 # Load and prepare data
+# =============================================================================
 file_path = "dataset-for-dashboard (version 3).xlsb.xlsx"
 if not os.path.exists(file_path):
-    raise FileNotFoundError(f"Excel file not found: {file_path}")
+    print(f"Warning: {file_path} not found. Ensure the file is in the directory.")
 
-df = pd.read_excel(file_path, engine="openpyxl")
+try:
+    df = pd.read_excel(file_path, engine="openpyxl")
+    df.columns = ["Size Group", "Length", "Diameter", "Thickness", "Weight", "Slenderness", "Sphericity"]
+    df["Slenderness"] = df["Length"] / df["Diameter"]
+    df["Sphericity"] = ((df["Length"] * df["Diameter"] * df["Thickness"]) ** (1 / 3)) / df["Length"]
+    numeric_cols = ["Length", "Diameter", "Thickness", "Weight", "Slenderness", "Sphericity"]
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
+    df.dropna(subset=numeric_cols + ["Size Group"], inplace=True)
+except Exception as e:
+    df = pd.DataFrame(columns=["Size Group", "Length", "Diameter", "Thickness", "Weight", "Slenderness", "Sphericity"])
+    numeric_cols = ["Length", "Diameter", "Thickness", "Weight", "Slenderness", "Sphericity"]
 
-# Rename columns for convenience
-df.columns = ["Size Group", "Length", "Diameter", "Thickness", "Weight",
-              "Slenderness", "Sphericity"]
-
-# Recompute Slenderness and Sphericity (ensuring they are numeric)
-df["Slenderness"] = df["Length"] / df["Diameter"]
-df["Sphericity"] = ((df["Length"] * df["Diameter"] * df["Thickness"]) ** (1 / 3)) / df["Length"]
-
-# Ensure numeric types
-numeric_cols = ["Length", "Diameter", "Thickness", "Weight", "Slenderness", "Sphericity"]
-df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
-
-# Drop any rows with missing critical values
-df.dropna(subset=numeric_cols + ["Size Group"], inplace=True)
-
-# Overall sample distribution (static, kept for reference, but not used for dynamic pie)
-size_counts_all = df["Size Group"].value_counts().reset_index()
+# Overall sample distribution
+size_counts_all = df["Size Group"].value_counts().reset_index() if not df.empty else pd.DataFrame(
+    columns=["Size Group", "count"])
 size_counts_all.columns = ["Size Group", "Count"]
-size_counts_all["Percentage"] = (size_counts_all["Count"] / size_counts_all["Count"].sum() * 100).round(1)
 
-# Color palette - sophisticated scientific scheme
+# =============================================================================
+# Styling & Theme Configuration
+# =============================================================================
 COLORS = {
-    'primary': '#2E4057',  # Deep slate blue
-    'secondary': '#048A81',  # Teal
-    'accent': '#FF6B35',  # Coral accent
-    'background': '#F8F9FA',  # Light gray
+    'primary': '#1A4D2E',  # Deep Forest Green
+    'secondary': '#E8B817',  # Golden Banana Yellow
+    'accent': '#FF7D00',  # Warm Orange Accent
+    'background': '#F4F7F5',  # Soft green-tinted white
     'card': '#FFFFFF',  # White
-    'text': '#2C3E50',  # Dark blue-gray
-    'muted': '#6C757D',  # Gray
-    'small': '#54C6EB',  # Light blue
-    'medium': '#048A81',  # Teal
-    'large': '#FF6B35',  # Coral
-    'border': '#E9ECEF'  # Light border
+    'text': '#2C3E2D',  # Dark green-gray
+    'muted': '#7D8F7D',  # Muted sage green
+    'small': '#88AB8E',  # Light sage
+    'medium': '#E8B817',  # Golden Yellow
+    'large': '#FF7D00',  # Warm Orange
+    'border': '#EAEFEB',  # Light border
+    'header-gradient-start': '#1A4D2E',
+    'header-gradient-end': '#4F6F52',
 }
 
-# Size group colors
-size_colors = {
-    'Small': COLORS['small'],
-    'Medium': COLORS['medium'],
-    'Large': COLORS['large']
-}
+size_colors = {'Small': COLORS['small'], 'Medium': COLORS['medium'], 'Large': COLORS['large']}
+FONT_FAMILY = "Plus Jakarta Sans"
 
-# Initialize the Dash app with custom styling
-app = dash.Dash(
-    __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME],
-    suppress_callback_exceptions=True
-)
-app.title = "Banana Physical Properties Dashboard"
+# =============================================================================
+# App Initialization & Custom CSS
+# =============================================================================
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME],
+                suppress_callback_exceptions=True)
+app.title = "Banana Physical Properties"
 
-# Custom CSS for publication-ready styling and responsive design
 app.index_string = '''
 <!DOCTYPE html>
 <html>
@@ -76,551 +70,346 @@ app.index_string = '''
         {%favicon%}
         {%css%}
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;600;700&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800&display=swap" rel="stylesheet">
         <style>
             body {
-                font-family: 'Source Sans Pro', sans-serif;
-                background-color: #F8F9FA;
-                color: #2C3E50;
+                font-family: 'Plus Jakarta Sans', sans-serif;
+                background-color: ''' + COLORS['background'] + ''';
+                color: ''' + COLORS['text'] + ''';
                 line-height: 1.6;
             }
-            h1, h2, h3, h4, h5, h6 {
-                font-family: 'Source Sans Pro', sans-serif;
-                font-weight: 600;
-                letter-spacing: -0.02em;
+            /* Animations */
+            @keyframes fadeInUp {
+                from { opacity: 0; transform: translateY(20px); }
+                to { opacity: 1; transform: translateY(0); }
             }
+            .fade-in {
+                animation: fadeInUp 0.6s cubic-bezier(0.165, 0.84, 0.44, 1) forwards;
+            }
+            .delay-1 { animation-delay: 0.1s; }
+            .delay-2 { animation-delay: 0.2s; }
+            .delay-3 { animation-delay: 0.3s; }
+
+            h1, h2, h3, h4, h5, h6 { font-weight: 700; letter-spacing: -0.03em; }
+
             .dashboard-header {
-                background: linear-gradient(135deg, #2E4057 0%, #048A81 100%);
-                color: white;
-                padding: 1.5rem 0;
-                margin-bottom: 1rem;
-                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                background: linear-gradient(135deg, ''' + COLORS['header-gradient-start'] + ''' 0%, ''' + COLORS[
+    'header-gradient-end'] + ''' 100%);
+                color: white; padding: 2.5rem 0; margin-bottom: 2rem;
+                box-shadow: 0 10px 30px rgba(26, 77, 46, 0.15);
+                border-radius: 0 0 2rem 2rem; position: relative; overflow: hidden;
+            }
+            .dashboard-header::after {
+                content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+                background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" opacity="0.08"><path d="M20 20 L80 20 L80 80 L20 80 Z" fill="none" stroke="white" stroke-width="2"/><circle cx="50" cy="50" r="20" fill="none" stroke="white" stroke-width="2"/></svg>') repeat;
+                pointer-events: none;
             }
             .metric-card {
-                background: white;
-                border-radius: 12px;
-                box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-                border: 1px solid #E9ECEF;
-                transition: transform 0.2s ease, box-shadow 0.2s ease;
-                overflow: hidden;
-                width: 100%;
-                height: 100%;
-                padding: 0.75rem;
-                text-align: center;
+                background: white; border-radius: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.04);
+                border: 1px solid rgba(255,255,255,0.4); overflow: hidden; width: 100%; height: 100%; padding: 1.5rem;
             }
-            .metric-card:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            .metric-card-btn {
+                transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease;
+                background: white; border: 1px solid ''' + COLORS['border'] + '''; border-radius: 16px;
+                padding: 1.2rem; width: 100%; height: 100%; text-align: center; cursor: pointer;
             }
-            .metric-card.selected {
-                border: 2px solid #048A81;
-                box-shadow: 0 0 0 2px rgba(4, 138, 129, 0.2);
+            .metric-card-btn:hover {
+                transform: translateY(-6px); box-shadow: 0 15px 30px rgba(232, 184, 23, 0.15); border-color: ''' + \
+                   COLORS['secondary'] + ''';
             }
-            .metric-value {
-                font-size: 1.5rem;
-                font-weight: 700;
-                color: #2E4057;
-                font-family: 'Source Sans Pro', sans-serif;
-            }
-            .metric-label {
-                font-size: 0.75rem;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                color: #6C757D;
-                font-weight: 600;
-            }
-            .stat-card {
-                background: white;
-                border-left: 4px solid #048A81;
-                padding: 1.25rem;
-                margin-bottom: 1rem;
-                border-radius: 0 8px 8px 0;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-            }
+            .metric-value { font-size: 1.8rem; font-weight: 800; color: ''' + COLORS['primary'] + '''; line-height: 1.2; }
+            .metric-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: ''' + COLORS[
+                       'muted'] + '''; font-weight: 700; }
+
             .filter-container {
-                background: white;
-                padding: 1.5rem;
-                border-radius: 12px;
-                box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-                margin-bottom: 2rem;
+                background: white; padding: 1.25rem 1.75rem; border-radius: 20px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.04); margin-bottom: 2rem;
             }
-            .custom-checkbox .form-check-input:checked {
-                background-color: #048A81;
-                border-color: #048A81;
-            }
-            .custom-checkbox .form-check-input {
-                border: 2px solid #CED4DA;
-                width: 1.2em;
-                height: 1.2em;
-                margin-right: 0.5rem;
-            }
-            .custom-checkbox .form-check-label {
-                font-weight: 500;
-                color: #2C3E50;
-            }
-            .dash-graph {
-                border-radius: 12px;
-                overflow: hidden;
-            }
-            .correlation-item {
-                padding: 0.75rem;
-                background: #F8F9FA;
-                border-radius: 8px;
-                margin-bottom: 0.5rem;
-                border-left: 3px solid #048A81;
-                transition: all 0.2s;
-                cursor: pointer;
-            }
-            .correlation-item:hover {
-                background: #e9ecef;
-            }
-            .tab-container {
-                background: white;
-                border-radius: 12px;
-                padding: 1.5rem;
-                box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-            }
-            .dash-tabs {
-                border-bottom: 2px solid #E9ECEF;
-            }
-            .dash-tab {
-                padding: 0.75rem 1rem;
-                font-weight: 600;
-                color: #6C757D;
-                border: none;
-                border-bottom: 3px solid transparent;
-                transition: all 0.3s ease;
-            }
-            .dash-tab:hover {
-                color: #048A81;
-                background: rgba(4, 138, 129, 0.05);
-            }
-            .dash-tab--selected {
-                color: #048A81 !important;
-                border-bottom: 3px solid #048A81 !important;
-                background: white !important;
-            }
-            .sample-badge {
-                display: inline-block;
-                padding: 0.25rem 0.75rem;
-                background: rgba(4, 138, 129, 0.1);
-                color: #048A81;
-                border-radius: 20px;
-                font-size: 0.85rem;
-                font-weight: 600;
-                margin-left: 1rem;
-            }
-            .section-title {
-                position: relative;
-                padding-bottom: 0.75rem;
-                margin-bottom: 1.5rem;
-            }
+            .custom-checkbox .form-check-input:checked { background-color: ''' + COLORS[
+                       'primary'] + '''; border-color: ''' + COLORS['primary'] + '''; }
+            .btn-custom { border-radius: 12px; font-weight: 600; background-color: ''' + COLORS[
+                       'background'] + '''; color: ''' + COLORS['text'] + '''; border: 1px solid ''' + COLORS[
+                       'border'] + '''; transition: all 0.2s; }
+            .btn-custom:hover { background-color: ''' + COLORS['primary'] + '''; color: white; transform: translateY(-2px); }
+
+            .section-title { position: relative; padding-bottom: 0.75rem; margin-bottom: 1.5rem; font-weight: 800; color: ''' + \
+                   COLORS['primary'] + '''; }
             .section-title::after {
-                content: '';
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                width: 60px;
-                height: 3px;
-                background: linear-gradient(90deg, #048A81, #54C6EB);
-                border-radius: 2px;
-            }
-            .correlation-btn {
-                width: 100%;
-                text-align: left;
-                background: none;
-                border: none;
-                padding: 0;
-            }
-            .scrollable-correlations {
-                max-height: 300px;
-                overflow-y: auto;
-                padding-right: 5px;
-            }
-            .scrollable-correlations::-webkit-scrollbar {
-                width: 6px;
-            }
-            .scrollable-correlations::-webkit-scrollbar-track {
-                background: #f1f1f1;
-                border-radius: 10px;
-            }
-            .scrollable-correlations::-webkit-scrollbar-thumb {
-                background: #048A81;
-                border-radius: 10px;
+                content: ''; position: absolute; bottom: 0; left: 0; width: 40px; height: 4px;
+                background: linear-gradient(90deg, ''' + COLORS['secondary'] + ''', ''' + COLORS['accent'] + '''); border-radius: 4px;
             }
 
-            /* Responsive adjustments */
-            @media (max-width: 768px) {
-                .metric-value {
-                    font-size: 1.2rem;
-                }
-                .metric-label {
-                    font-size: 0.7rem;
-                }
-                .dashboard-header h1 {
-                    font-size: 1.5rem;
-                }
-                .dashboard-header p {
-                    font-size: 0.9rem;
-                }
-                .section-title {
-                    font-size: 1.1rem;
-                }
-                .scrollable-correlations {
-                    max-height: 200px;
-                }
+            /* Custom Tabs Styling */
+            .nav-tabs { border-bottom: 2px solid ''' + COLORS['border'] + '''; border-radius: 0; margin-bottom: 2rem; }
+            .nav-tabs .nav-link { 
+                border: none; color: ''' + COLORS['muted'] + '''; font-weight: 700; font-size: 1.1rem; 
+                padding: 1rem 1.5rem; transition: all 0.3s; background: transparent;
             }
+            .nav-tabs .nav-link:hover { color: ''' + COLORS['primary'] + '''; background: transparent; }
+            .nav-tabs .nav-link.active { 
+                color: ''' + COLORS['primary'] + '''; background: transparent; 
+                border-bottom: 4px solid ''' + COLORS['secondary'] + '''; 
+            }
+
+            .scrollable-correlations { max-height: 380px; overflow-y: auto; padding-right: 5px; }
+            .scrollable-correlations::-webkit-scrollbar { width: 6px; }
+            .scrollable-correlations::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+            .scrollable-correlations::-webkit-scrollbar-thumb { background: ''' + COLORS['muted'] + '''; border-radius: 10px; }
         </style>
     </head>
-    <body>
-        {%app_entry%}
-        <footer>
-            {%config%}
-            {%scripts%}
-            {%renderer%}
-        </footer>
-    </body>
+    <body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body>
 </html>
 '''
 
-# App layout
+# =============================================================================
+# App Layout
+# =============================================================================
 app.layout = dbc.Container([
-    # Header Section
+    # Header
     html.Div([
         dbc.Container([
             html.Div([
-                html.H1([
-                    html.I(className="fas fa-leaf me-3", style={"opacity": "0.8"}),
-                    "Saba Banana"
-                ], className="display-5 mb-2", style={"fontWeight": "700"}),
-                html.P([
-                    "Physical Properties - Los Baños"
-                ], className="lead mb-0", style={"opacity": "0.5", "fontSize": "1.1rem"})
-            ], className="text-center")
+                html.H1([html.I(className="fas fa-leaf me-3", style={"color": COLORS['secondary']}),
+                         "Saba Banana Analytics"], className="display-5 mb-2"),
+                html.P(["Interactive Physical & Morphological Dashboard"], className="lead mb-0",
+                       style={"opacity": "0.9", "fontWeight": "400"})
+            ], className="text-center fade-in")
         ], fluid=True)
     ], className="dashboard-header"),
 
     dbc.Container([
-        # Row 1: Data Filter and Group Statistics
+        # Global Filter Row
         dbc.Row([
             dbc.Col([
-                # Filter Section (checkboxes)
-                html.Div([
-                    html.H5([
-                        html.I(className="fas fa-filter me-2", style={"color": COLORS['secondary']}),
-                        "Data Filter"
-                    ], className="section-title"),
-                    dbc.Row([
-                        dbc.Col([
-                            html.Label("Select Size Groups:", className="fw-bold mb-3", style={"color": COLORS['text']}),
-                            dcc.Checklist(
-                                id="size-filter",
-                                options=[
-                                    {"label": " All Groups", "value": "All"},
-                                    {"label": " Small", "value": "Small"},
-                                    {"label": " Medium", "value": "Medium"},
-                                    {"label": " Large", "value": "Large"}
-                                ],
-                                value=["All"],
-                                inline=True,
-                                className="custom-checkbox",
-                                labelStyle={
-                                    "margin-right": "1rem",
-                                    "cursor": "pointer",
-                                    "display": "inline-flex",
-                                    "align-items": "center",
-                                    "font-size": "0.9rem"
-                                }
-                            )
-                        ], width=12)
-                    ])
-                ], className="filter-container h-100")
-            ], xs=12, md=4),
-
-            dbc.Col([
-                # Group Statistics (metrics grid)
-                html.Div([
-                    html.H5([
-                        html.I(className="fas fa-chart-line me-2", style={"color": COLORS['secondary']}),
-                        "Group Statistics"
-                    ], className="section-title"),
-                    dbc.Row(id="metrics-grid", className="g-3")
-                ], className="h-100")
-            ], xs=12, md=8)
-        ], className="g-3 mb-4"),
-
-        # Row 2: Sample Distribution, Individual Histogram, Comparative Box Plot
-        dbc.Row([
-            dbc.Col([
-                # Sample Distribution Pie
-                html.Div([
-                    html.H5([
-                        html.I(className="fas fa-chart-pie me-2", style={"color": COLORS['secondary']}),
-                        "Sample Distribution"
-                    ], className="section-title"),
-                    dcc.Graph(
-                        id="sample-pie",
-                        config={'displayModeBar': False},
-                        style={"height": "300px"}
-                    )
-                ], className="metric-card p-3 h-100")
-            ], xs=12, md=4),
-
-            dbc.Col([
-                # Individual Distribution Plot
                 html.Div([
                     html.Div([
-                        html.H5(id="indiv-plot-title", children="Distribution of Weight",
-                                className="section-title", style={"border": "none", "marginBottom": "0.5rem", "display": "inline-block"}),
-                        dbc.Button(
-                            [html.I(className="fas fa-th me-1"), "All"],
-                            id="show-all-dist-btn",
-                            color="secondary",
-                            size="sm",
-                            className="float-end",
-                            style={"marginTop": "0.5rem"}
+                        html.H5([html.I(className="fas fa-filter me-2", style={"color": COLORS['secondary']}),
+                                 "Global Filter"], className="mb-0",
+                                style={"fontWeight": "800", "color": COLORS['primary']}),
+                        dcc.Checklist(
+                            id="size-filter",
+                            options=[
+                                {"label": " All Groups", "value": "All"},
+                                {"label": " Small", "value": "Small"},
+                                {"label": " Medium", "value": "Medium"},
+                                {"label": " Large", "value": "Large"}
+                            ],
+                            value=["All"], inline=True, className="custom-checkbox ms-4",
+                            labelStyle={"margin-right": "1.5rem", "cursor": "pointer", "display": "inline-flex",
+                                        "align-items": "center", "font-weight": "600"}
                         )
-                    ], className="d-flex justify-content-between align-items-center"),
-                    dcc.Graph(
-                        id="individual-dist-plot",
-                        config={'displayModeBar': 'hover'},
-                        style={"height": "300px"}
-                    )
-                ], className="metric-card p-3 h-100")
-            ], xs=12, md=4),
+                    ], className="d-flex align-items-center flex-wrap")
+                ], className="filter-container fade-in delay-1")
+            ], width=12)
+        ]),
 
-            dbc.Col([
-                # Comparative Box Plot
+        # Main Tabs Content
+        dbc.Tabs([
+            # TAB 1: OVERVIEW & DISTRIBUTIONS
+            dbc.Tab(label="Overview & Distributions", tab_id="tab-1", children=[
                 html.Div([
-                    html.Div([
-                        html.H5(id="box-plot-title", children="Box Plot of Weight",
-                                className="section-title", style={"border": "none", "marginBottom": "0.5rem", "display": "inline-block"}),
-                        dbc.Button(
-                            [html.I(className="fas fa-th me-1"), "All"],
-                            id="show-all-box-btn",
-                            color="secondary",
-                            size="sm",
-                            className="float-end",
-                            style={"marginTop": "0.5rem"}
-                        )
-                    ], className="d-flex justify-content-between align-items-center"),
-                    dcc.Graph(
-                        id="box-plot",
-                        config={'displayModeBar': 'hover'},
-                        style={"height": "300px"}
-                    )
-                ], className="metric-card p-3 h-100")
-            ], xs=12, md=4)
-        ], className="g-3 mb-4"),
+                    html.P("Select a metric card below to filter the distribution plots.", className="text-muted mb-4",
+                           style={"fontWeight": "600"}),
+                    dbc.Row(id="metrics-grid", className="g-3 mb-4"),
 
-        # Row 3: Correlation Analysis
-        dbc.Row([
-            dbc.Col([
-                html.Div([
-                    html.H5("Correlation Analysis", className="section-title"),
                     dbc.Row([
+                        # Left column: Sample Distribution Pie (narrower)
                         dbc.Col([
                             html.Div([
-                                html.H6("All Pairs", className="mb-2 d-inline-block"),
-                                dbc.Button(
-                                    "Show Full Matrix",
-                                    id="reset-correlation-from-list",
-                                    color="secondary",
-                                    size="sm",
-                                    className="ms-3",
-                                    style={"verticalAlign": "middle"}
-                                ),
-                            ]),
-                            html.Div(id="correlation-summary-content", className="scrollable-correlations mt-2")
-                        ], xs=12, md=4),
+                                html.H5(
+                                    [html.I(className="fas fa-chart-pie me-2", style={"color": COLORS['secondary']}),
+                                     "Sample Distribution"], className="section-title"),
+                                dcc.Loading(type="dot", color=COLORS['primary'], children=[
+                                    dcc.Graph(id="sample-pie", config={'displayModeBar': False},
+                                              style={"height": "300px"})
+                                ])
+                            ], className="metric-card h-100")
+                        ], xs=12, lg=4, className="mb-4 mb-lg-0"),
+
+                        # Right column: Histogram and Box Plot side by side (wider)
                         dbc.Col([
                             html.Div([
-                                html.H6("Correlation Plot", className="mb-2"),
-                                dcc.Graph(
-                                    id="correlation-matrix-plot",
-                                    config={'displayModeBar': 'hover'},
-                                    style={"height": "350px"}
-                                )
+                                html.H4(id="active-property-display", className="text-center mb-3",
+                                        style={"color": COLORS['primary']}),
+                                dbc.Row([
+                                    dbc.Col([
+                                        html.Div([
+                                            html.Div([
+                                                html.H5("Histogram", className="section-title",
+                                                        style={"border": "none", "marginBottom": "0.5rem",
+                                                               "display": "inline-block"}),
+                                                dbc.Button([html.I(className="fas fa-expand-alt me-1"), " Expand"],
+                                                           id="show-all-dist-btn", className="btn-custom float-end",
+                                                           style={"marginTop": "0.5rem"})
+                                            ], className="d-flex justify-content-between align-items-center"),
+                                            dcc.Loading(type="dot", color=COLORS['primary'], children=[
+                                                dcc.Graph(id="individual-dist-plot", config={'displayModeBar': 'hover'},
+                                                          style={"height": "300px"})
+                                            ])
+                                        ], className="metric-card h-100")
+                                    ], xs=12, md=6, className="mb-3 mb-md-0"),
+
+                                    dbc.Col([
+                                        html.Div([
+                                            html.Div([
+                                                html.H5("Box Plot", className="section-title",
+                                                        style={"border": "none", "marginBottom": "0.5rem",
+                                                               "display": "inline-block"}),
+                                                dbc.Button([html.I(className="fas fa-expand-alt me-1"), " Expand"],
+                                                           id="show-all-box-btn", className="btn-custom float-end",
+                                                           style={"marginTop": "0.5rem"})
+                                            ], className="d-flex justify-content-between align-items-center"),
+                                            dcc.Loading(type="dot", color=COLORS['primary'], children=[
+                                                dcc.Graph(id="box-plot", config={'displayModeBar': 'hover'},
+                                                          style={"height": "300px"})
+                                            ])
+                                        ], className="metric-card h-100")
+                                    ], xs=12, md=6)
+                                ])
                             ])
+                        ], xs=12, lg=8)
+                    ])
+                ], className="fade-in delay-2 py-3")
+            ]),
+
+            # TAB 2: CORRELATION ANALYSIS
+            dbc.Tab(label="Correlation Analysis", tab_id="tab-2", children=[
+                html.Div([
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div([
+                                html.Div([
+                                    html.H5("All Pairs", className="mb-2 d-inline-block",
+                                            style={"fontWeight": "700", "color": COLORS['primary']}),
+                                    dbc.Button("Show Full Matrix", id="reset-correlation-from-list",
+                                               className="btn-custom float-end",
+                                               style={"padding": "0.3rem 0.8rem", "fontSize": "0.85rem"})
+                                ], className="mb-3"),
+                                html.Div(id="correlation-summary-content", className="scrollable-correlations")
+                            ], className="metric-card")
+                        ], xs=12, md=4, className="mb-4 mb-md-0"),
+
+                        dbc.Col([
+                            html.Div([
+                                html.H5("Correlation Matrix / Scatter Plot", className="mb-4",
+                                        style={"fontWeight": "700", "color": COLORS['primary']}),
+                                dcc.Loading(type="dot", color=COLORS['primary'], children=[
+                                    dcc.Graph(id="correlation-matrix-plot", config={'displayModeBar': 'hover'},
+                                              style={"height": "400px"})
+                                ])
+                            ], className="metric-card")
                         ], xs=12, md=8)
                     ])
-                ], className="metric-card p-3")
-            ], width=12)
-        ], className="g-3 mb-4"),
+                ], className="fade-in delay-2 py-3")
+            ]),
+        ], id="tabs", active_tab="tab-1"),
 
         # Footer
         html.Footer([
-            html.Hr(style={"margin": "2rem 0 1rem 0", "opacity": "0.1"}),
-            html.P([
-                "Dashboard generated using Plotly Dash • Data: n=62 banana samples"
-            ], className="text-center text-muted", style={"fontSize": "0.8rem"})
+            html.Hr(style={"margin": "3rem 0 1rem 0", "opacity": "0.1", "borderColor": COLORS['primary']}),
+            html.P(["Dashboard generated using Plotly Dash • Data: n=62 Saba banana samples"], className="text-center",
+                   style={"fontSize": "0.9rem", "color": COLORS['muted'], "fontWeight": "600", "paddingBottom": "2rem"})
         ])
+    ], fluid=True, style={"padding": "0 2% "}),
 
-    ], fluid=True, style={"padding": "0 10px"}),  # fluid=True for full width on small screens
+    # Modals
+    dbc.Modal([
+        dbc.ModalHeader(
+            dbc.ModalTitle("All Distribution Plots", style={"fontWeight": "700", "color": COLORS['primary']})),
+        dbc.ModalBody(dcc.Loading(type="dot", color=COLORS['primary'],
+                                  children=dcc.Graph(id="dist-modal-plot", style={"height": "80vh"}))),
+        dbc.ModalFooter(dbc.Button("Close", id="close-dist-modal-btn", className="ms-auto btn-custom")),
+    ], id="dist-modal", size="xl", fullscreen=True, is_open=False),
 
-    # Modal for all distribution plots
-    dbc.Modal(
-        [
-            dbc.ModalHeader(dbc.ModalTitle("All Distribution Plots")),
-            dbc.ModalBody(
-                dcc.Graph(
-                    id="dist-modal-plot",
-                    style={"height": "80vh"},
-                    config={'displayModeBar': 'hover'}
-                )
-            ),
-            dbc.ModalFooter(
-                dbc.Button("Close", id="close-dist-modal-btn", className="ms-auto")
-            ),
-        ],
-        id="dist-modal",
-        size="xl",
-        fullscreen=True,  # Use fullscreen on small devices
-        is_open=False,
-    ),
-
-    # Modal for all box plots
-    dbc.Modal(
-        [
-            dbc.ModalHeader(dbc.ModalTitle("All Box Plots")),
-            dbc.ModalBody(
-                dcc.Graph(
-                    id="box-modal-plot",
-                    style={"height": "80vh"},
-                    config={'displayModeBar': 'hover'}
-                )
-            ),
-            dbc.ModalFooter(
-                dbc.Button("Close", id="close-box-modal-btn", className="ms-auto")
-            ),
-        ],
-        id="box-modal",
-        size="xl",
-        fullscreen=True,
-        is_open=False,
-    ),
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle("All Box Plots", style={"fontWeight": "700", "color": COLORS['primary']})),
+        dbc.ModalBody(dcc.Loading(type="dot", color=COLORS['primary'],
+                                  children=dcc.Graph(id="box-modal-plot", style={"height": "80vh"}))),
+        dbc.ModalFooter(dbc.Button("Close", id="close-box-modal-btn", className="ms-auto btn-custom")),
+    ], id="box-modal", size="xl", fullscreen=True, is_open=False),
 
     # Stores
     dcc.Store(id="selected-property", data="Weight"),
     dcc.Store(id="prev-size-filter", data=["All"]),
     dcc.Store(id="correlation-pair", data=None),
-
 ], fluid=True, style={"padding": "0", "backgroundColor": COLORS['background']})
 
 
 # =============================================================================
-# Helper functions and callbacks (unchanged)
+# Helper Functions & Callbacks
 # =============================================================================
+def generate_pair_id(x, y): return f"corr-btn-{x}-{y}"
 
-def generate_pair_id(x, y):
-    return f"corr-btn-{x}-{y}"
 
-def get_all_pairs():
-    return list(itertools.combinations(numeric_cols, 2))
+def get_all_pairs(): return list(itertools.combinations(numeric_cols, 2))
 
-# Callback 1: Enforce smart "All" behavior
+
 @app.callback(
-    [Output("size-filter", "value"),
-     Output("prev-size-filter", "data")],
-    [Input("size-filter", "value")],
-    [State("prev-size-filter", "data")],
+    [Output("size-filter", "value"), Output("prev-size-filter", "data")],
+    [Input("size-filter", "value")], [State("prev-size-filter", "data")],
     prevent_initial_call=True
 )
 def enforce_all_selection(new_val, old_val):
     new_set = set(new_val) if new_val else set()
     old_set = set(old_val) if old_val else set()
-
     if "All" in new_set:
-        if "All" not in old_set:
-            target = ["All"]
-        else:
-            target = list(new_set - {"All"})
-            if not target:
-                target = ["All"]
+        target = ["All"] if "All" not in old_set else list(new_set - {"All"}) or ["All"]
     else:
-        if not new_set:
-            target = ["All"]
-        else:
-            target = list(new_set)
+        target = ["All"] if not new_set else list(new_set)
+    return (dash.no_update, target) if set(target) == new_set else (target, target)
 
-    if set(target) == new_set:
-        return dash.no_update, target
-    else:
-        return target, target
 
-# Callback 2: Reset correlation pair on filter change
 @app.callback(
     Output("correlation-pair", "data", allow_duplicate=True),
-    Input("size-filter", "value"),
-    prevent_initial_call=True
+    Input("size-filter", "value"), prevent_initial_call=True
 )
-def reset_correlation_on_filter(_):
-    return None
+def reset_correlation_on_filter(_): return None
 
-# Callback 3: Main dashboard update
+
 @app.callback(
-    [Output("metrics-grid", "children"),
-     Output("individual-dist-plot", "figure"),
-     Output("indiv-plot-title", "children"),
-     Output("box-plot", "figure"),
-     Output("box-plot-title", "children"),
-     Output("correlation-summary-content", "children"),
-     Output("sample-pie", "figure")],
-    [Input("size-filter", "value"),
-     Input("selected-property", "data")]
+    [Output("metrics-grid", "children"), Output("individual-dist-plot", "figure"),
+     Output("box-plot", "figure"), Output("active-property-display", "children"),
+     Output("correlation-summary-content", "children"), Output("sample-pie", "figure")],
+    [Input("size-filter", "value"), Input("selected-property", "data")]
 )
 def update_dashboard(selected_groups, selected_prop):
-    if "All" in selected_groups:
-        filtered_df = df
-    else:
-        if not selected_groups:
-            filtered_df = pd.DataFrame(columns=df.columns)
-        else:
-            filtered_df = df[df["Size Group"].isin(selected_groups)]
+    filtered_df = df if "All" in selected_groups else pd.DataFrame(columns=df.columns) if not selected_groups else df[
+        df["Size Group"].isin(selected_groups)]
 
-    # Pie chart
+    # 1. Sample Pie Chart
     if filtered_df.empty:
-        pie_fig = go.Figure()
-        pie_fig.add_annotation(text="No data", showarrow=False)
-        pie_fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        pie_fig = go.Figure().add_annotation(text="No data", showarrow=False).update_layout(
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
     else:
-        filtered_size_counts = filtered_df["Size Group"].value_counts().reset_index()
-        filtered_size_counts.columns = ["Size Group", "Count"]
-        total = filtered_size_counts["Count"].sum()
-        filtered_size_counts["Percentage"] = (filtered_size_counts["Count"] / total * 100).round(1)
-        pie_colors = [size_colors.get(sg, COLORS['primary']) for sg in filtered_size_counts["Size Group"]]
+        counts = filtered_df["Size Group"].value_counts().reset_index()
+        counts.columns = ["Size Group", "Count"]
+        pie_colors = [size_colors.get(sg, COLORS['primary']) for sg in counts["Size Group"]]
         pie_fig = go.Figure(data=[go.Pie(
-            labels=filtered_size_counts["Size Group"],
-            values=filtered_size_counts["Count"],
-            hole=0.55,
-            marker=dict(colors=pie_colors, line=dict(color='white', width=2)),
-            textinfo='label+percent',
-            textfont=dict(size=12, family='Source Sans Pro'),
-            hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
+            labels=counts["Size Group"], values=counts["Count"], hole=0.65,
+            marker=dict(colors=pie_colors, line=dict(color='white', width=3)),
+            textinfo='label+percent', textfont=dict(size=14, family=FONT_FAMILY, color=COLORS['text']),
+            hovertemplate='<b>%{label}</b><br>Count: %{value}<extra></extra>'
         )])
-        ann_text = f'<b>Total</b><br>n={total}'
         pie_fig.update_layout(
-            showlegend=False,
-            margin=dict(t=20, b=20, l=20, r=20),
-            paper_bgcolor='rgba(0,0,0,0)',
+            showlegend=False, margin=dict(t=10, b=10, l=10, r=10), paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            annotations=[dict(text=ann_text, x=0.5, y=0.5, font_size=16, font_family='Source Sans Pro', showarrow=False)]
+            annotations=[
+                dict(text=f'<b>n={counts["Count"].sum()}</b>', x=0.5, y=0.5, font_size=22, font_family=FONT_FAMILY,
+                     font_color=COLORS['primary'], showarrow=False)],
+            transition={'duration': 500, 'easing': 'cubic-in-out'}
         )
 
     if filtered_df.empty:
-        empty_msg = html.Div([
-            html.I(className="fas fa-exclamation-circle me-2"),
-            "No data available for selected groups."
-        ], className="text-muted text-center py-5")
-        empty_cards = [dbc.Col(empty_msg, width=12)]
-        empty_fig = go.Figure()
-        empty_fig.add_annotation(text="No data", showarrow=False)
-        return empty_cards, empty_fig, f"{selected_prop} Distribution", empty_fig, f"Box Plot of {selected_prop}", empty_msg, pie_fig
+        empty_msg = html.Div("No data available.", className="text-muted text-center py-5")
+        empty_fig = go.Figure().add_annotation(text="No data", showarrow=False).update_layout(
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        return [dbc.Col(empty_msg,
+                        width=12)], empty_fig, empty_fig, f"Selected Property: {selected_prop}", empty_msg, pie_fig
 
-    # Metrics grid
+    # 2. Metrics Grid
     means = filtered_df[numeric_cols].mean()
     stds = filtered_df[numeric_cols].std()
-    metric_definitions = [
+    metric_defs = [
         ("Length", means["Length"], stds["Length"], "mm", "ruler-horizontal", "metric-length"),
         ("Diameter", means["Diameter"], stds["Diameter"], "mm", "circle", "metric-diameter"),
         ("Thickness", means["Thickness"], stds["Thickness"], "mm", "layer-group", "metric-thickness"),
@@ -629,438 +418,367 @@ def update_dashboard(selected_groups, selected_prop):
         ("Sphericity", means["Sphericity"], stds["Sphericity"], "", "globe", "metric-sphericity")
     ]
     metrics_cards = []
-    for name, mean_val, std_val, unit, icon, btn_id in metric_definitions:
-        card = dbc.Col([
+    for name, mean_val, std_val, unit, icon, btn_id in metric_defs:
+        metrics_cards.append(dbc.Col([
             dbc.Button(
                 id=btn_id,
                 children=[
-                    html.Div([
-                        html.I(className=f"fas fa-{icon}", style={"fontSize": "1.5rem", "color": COLORS['secondary'], "marginBottom": "0.5rem"})
-                    ]),
+                    html.Div([html.I(className=f"fas fa-{icon}",
+                                     style={"fontSize": "1.8rem", "color": COLORS['secondary'],
+                                            "marginBottom": "0.5rem"})]),
                     html.Div(f"{mean_val:.2f} {unit}", className="metric-value"),
-                    html.Div(f"± {std_val:.2f}", style={"fontSize": "0.9rem", "color": COLORS['muted'], "fontWeight": "500"}),
+                    html.Div(f"± {std_val:.2f}",
+                             style={"fontSize": "0.9rem", "color": COLORS['muted'], "fontWeight": "600"}),
                     html.Div(name, className="metric-label mt-2")
                 ],
-                style={
-                    "background": "white",
-                    "border": "1px solid #E9ECEF",
-                    "borderRadius": "12px",
-                    "padding": "0.75rem",
-                    "width": "100%",
-                    "height": "100%",
-                    "textAlign": "center",
-                    "color": "inherit",
-                    "boxShadow": "0 2px 12px rgba(0,0,0,0.06)",
-                    "transition": "transform 0.2s ease, box-shadow 0.2s ease",
-                },
-                className="metric-card-btn",
-                n_clicks=0
+                className="metric-card-btn", n_clicks=0
             )
-        ], xs=6, sm=4, md=3, lg=2, className="mb-3")
-        metrics_cards.append(card)
+        ], xs=6, sm=4, md=4, lg=2))
 
-    # Individual histogram
-    indiv_fig = go.Figure()
-    indiv_fig.add_trace(go.Histogram(
-        x=filtered_df[selected_prop],
-        marker_color=COLORS['secondary'],
-        opacity=0.85, nbinsx=12, marker_line_color='white', marker_line_width=1,
+    # 3. Individual Histogram
+    indiv_fig = go.Figure(go.Histogram(
+        x=filtered_df[selected_prop], marker_color=COLORS['primary'], opacity=0.8, nbinsx=12,
+        marker_line_color='white', marker_line_width=2,
         hovertemplate=f'<b>{selected_prop}</b><br>Value: %{{x:.2f}}<br>Count: %{{y}}<extra></extra>'
     ))
     mean_val = filtered_df[selected_prop].mean()
-    indiv_fig.add_vline(x=mean_val, line_dash="dash", line_color=COLORS['accent'], line_width=2,
-                        annotation_text=f"μ={mean_val:.2f}", annotation_position="top right", annotation_font_size=10)
-    unit = 'g' if selected_prop == 'Weight' else 'mm' if selected_prop in ['Length','Diameter','Thickness'] else ''
+    indiv_fig.add_vline(x=mean_val, line_dash="dash", line_color=COLORS['accent'], line_width=2.5,
+                        annotation_text=f"μ={mean_val:.1f}", annotation_position="top right", annotation_font_size=11,
+                        annotation_font_color=COLORS['text'])
+    unit = 'g' if selected_prop == 'Weight' else 'mm' if selected_prop in ['Length', 'Diameter', 'Thickness'] else ''
     indiv_fig.update_layout(
-        xaxis_title=f"{selected_prop} ({unit})" if unit else selected_prop,
-        yaxis_title="Frequency",
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Source Sans Pro", size=12),
-        margin=dict(t=20, b=40, l=50, r=30),
-        hovermode='closest'
+        xaxis_title=f"{selected_prop} ({unit})" if unit else selected_prop, yaxis_title="Frequency",
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(family=FONT_FAMILY, size=12, color=COLORS['text']),
+        margin=dict(t=10, b=40, l=40, r=20), hovermode='closest',
+        transition={'duration': 500, 'easing': 'cubic-in-out'}
     )
-    indiv_fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)')
-    indiv_fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)')
+    indiv_fig.update_xaxes(showgrid=False, zeroline=False)
+    indiv_fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=COLORS['border'], zeroline=False)
 
-    # Box plot
+    # 4. Box Plot
     box_fig = go.Figure()
     if "All" in selected_groups and len(filtered_df["Size Group"].unique()) > 1:
-        for size_group in filtered_df["Size Group"].unique():
-            data = filtered_df[filtered_df["Size Group"] == size_group][selected_prop]
-            box_fig.add_trace(go.Box(
-                y=data, name=size_group,
-                marker_color=size_colors.get(size_group, COLORS['secondary']),
-                line=dict(color=size_colors.get(size_group, COLORS['secondary'])),
-                boxmean=True, boxpoints='outliers'
-            ))
+        for size_group in ["Small", "Medium", "Large"]:
+            if size_group in filtered_df["Size Group"].unique():
+                data = filtered_df[filtered_df["Size Group"] == size_group][selected_prop]
+                box_fig.add_trace(go.Box(
+                    y=data, name=size_group, marker_color=size_colors.get(size_group, COLORS['primary']),
+                    line=dict(width=2), boxmean=True, boxpoints='outliers', fillcolor=size_colors.get(size_group)
+                ))
     else:
         box_fig.add_trace(go.Box(
-            y=filtered_df[selected_prop],
-            marker_color=COLORS['secondary'],
-            line=dict(color=COLORS['secondary']),
-            boxmean=True, boxpoints='outliers',
-            name=selected_prop
+            y=filtered_df[selected_prop], marker_color=COLORS['primary'],
+            line=dict(width=2), boxmean=True, boxpoints='outliers', name=selected_prop
         ))
     box_fig.update_layout(
-        yaxis_title=selected_prop,
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Source Sans Pro", size=12),
-        margin=dict(t=20, b=40, l=50, r=30),
-        hovermode='closest',
-        showlegend=("All" in selected_groups and len(filtered_df["Size Group"].unique()) > 1)
+        yaxis_title=selected_prop, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(family=FONT_FAMILY, size=12, color=COLORS['text']), margin=dict(t=10, b=40, l=40, r=20),
+        hovermode='closest', showlegend=("All" in selected_groups and len(filtered_df["Size Group"].unique()) > 1),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        transition={'duration': 500, 'easing': 'cubic-in-out'}
     )
-    box_fig.update_xaxes(showgrid=False)
-    box_fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)')
+    box_fig.update_xaxes(showgrid=False, zeroline=False)
+    box_fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=COLORS['border'], zeroline=False)
 
-    # Correlation summary
+    # 5. Correlation Summary – Sorted by strongest to weakest
     if len(filtered_df) < 2:
-        correlation_summary = html.Div([
-            html.I(className="fas fa-info-circle me-2", style={"color": COLORS['muted']}),
-            "Insufficient data points for correlation analysis."
-        ], className="text-muted")
+        correlation_summary = html.Div([html.I(className="fas fa-info-circle me-2"), "Insufficient data."],
+                                       className="text-muted")
     else:
         corr_matrix = filtered_df[numeric_cols].corr()
         pairs = get_all_pairs()
-        corr_items = []
+        # Create list of (abs_r, x, y, r) and sort descending by abs_r
+        pair_data = []
         for x, y in pairs:
             r = corr_matrix.loc[x, y]
             abs_r = abs(r)
+            pair_data.append((abs_r, x, y, r))
+        pair_data.sort(key=lambda item: item[0], reverse=True)  # sort by absolute r descending
+
+        corr_items = []
+        for abs_r, x, y, r in pair_data:
             if abs_r >= 0.9:
-                strength = "Very Strong"; color = COLORS['secondary']; badge_class = "bg-success"
+                strength, color, badge = "Very Strong", COLORS['primary'], "bg-success"
             elif abs_r >= 0.7:
-                strength = "Strong"; color = "#28a745"; badge_class = "bg-success"
+                strength, color, badge = "Strong", "#4F6F52", "bg-success"
             elif abs_r >= 0.5:
-                strength = "Moderate"; color = "#ffc107"; badge_class = "bg-warning"
+                strength, color, badge = "Moderate", COLORS['medium'], "bg-warning"
             else:
-                strength = "Weak"; color = COLORS['muted']; badge_class = "bg-secondary"
+                strength, color, badge = "Weak", COLORS['muted'], "bg-secondary"
 
             btn_id = generate_pair_id(x, y)
-            corr_item = dbc.Button(
+            corr_items.append(dbc.Button(
                 id=btn_id,
                 children=[
                     html.Div([
-                        html.Span(x, style={"fontWeight": "600", "color": COLORS['text']}),
+                        html.Span(x, style={"fontWeight": "700", "color": COLORS['text']}),
                         html.Span(" vs ", style={"margin": "0 0.5rem", "color": COLORS['muted']}),
-                        html.Span(y, style={"fontWeight": "600", "color": COLORS['text']}),
-                    ], style={"display": "flex", "alignItems": "center", "marginBottom": "0.25rem"}),
+                        html.Span(y, style={"fontWeight": "700", "color": COLORS['text']}),
+                    ], style={"display": "flex", "alignItems": "center", "marginBottom": "0.3rem"}),
                     html.Div([
-                        html.Span(f"r = {r:.3f}", style={"fontWeight": "700", "color": color, "fontSize": "1.1rem", "fontFamily": "Source Sans Pro"}),
-                        html.Span(strength, className=f"badge {badge_class} ms-2", style={"fontSize": "0.75rem", "padding": "0.4em 0.8em"})
+                        html.Span(f"r = {r:.3f}", style={"fontWeight": "800", "color": color, "fontSize": "1.1rem",
+                                                         "fontFamily": FONT_FAMILY}),
+                        html.Span(strength, className=f"badge {badge} ms-2", style={"fontSize": "0.75rem"})
                     ])
                 ],
-                style={
-                    "width": "100%", "textAlign": "left", "background": "none", "border": "none",
-                    "padding": "0.5rem", "marginBottom": "0.5rem",
-                    "borderLeft": f"3px solid {COLORS['secondary']}", "borderRadius": "0 8px 8px 0",
-                    "backgroundColor": "#F8F9FA", "color": "inherit", "transition": "background 0.2s", "boxShadow": "none"
-                },
+                style={"width": "100%", "textAlign": "left", "background": "white",
+                       "border": f"1px solid {COLORS['border']}", "padding": "0.75rem", "marginBottom": "0.5rem",
+                       "borderLeft": f"5px solid {color}", "borderRadius": "10px", "transition": "transform 0.2s"},
                 className="correlation-btn"
-            )
-            corr_items.append(corr_item)
+            ))
         correlation_summary = html.Div(corr_items)
 
-    return metrics_cards, indiv_fig, f"{selected_prop} Distribution", box_fig, f"Box Plot of {selected_prop}", correlation_summary, pie_fig
+    property_title = html.Span([
+        "Currently Viewing Distributions for: ",
+        html.Span(selected_prop, style={"textDecoration": "underline", "textDecorationColor": COLORS['secondary'],
+                                        "textDecorationThickness": "3px"})
+    ])
 
-# Callback 4: Update selected property
+    return metrics_cards, indiv_fig, box_fig, property_title, correlation_summary, pie_fig
+
+
 @app.callback(
     Output("selected-property", "data"),
-    [Input("metric-length", "n_clicks"),
-     Input("metric-diameter", "n_clicks"),
-     Input("metric-thickness", "n_clicks"),
-     Input("metric-weight", "n_clicks"),
-     Input("metric-slenderness", "n_clicks"),
-     Input("metric-sphericity", "n_clicks")],
+    [Input(f"metric-{p.lower()}", "n_clicks") for p in numeric_cols],
     prevent_initial_call=True
 )
 def select_property(*args):
     ctx = dash.callback_context
-    if not ctx.triggered:
-        return dash.no_update
-    button_id = ctx.triggered[0]["prop_id"].split(".")[0]
-    mapping = {
-        "metric-length": "Length",
-        "metric-diameter": "Diameter",
-        "metric-thickness": "Thickness",
-        "metric-weight": "Weight",
-        "metric-slenderness": "Slenderness",
-        "metric-sphericity": "Sphericity"
-    }
-    return mapping.get(button_id, "Weight")
+    if not ctx.triggered: return dash.no_update
+    btn = ctx.triggered[0]["prop_id"].split(".")[0].split("-")[1].capitalize()
+    return btn if btn in numeric_cols else "Weight"
 
-# Callback 5: Highlight selected metric card
+
 @app.callback(
-    [Output("metric-length", "style"),
-     Output("metric-diameter", "style"),
-     Output("metric-thickness", "style"),
-     Output("metric-weight", "style"),
-     Output("metric-slenderness", "style"),
-     Output("metric-sphericity", "style")],
+    [Output(f"metric-{p.lower()}", "style") for p in numeric_cols],
     [Input("selected-property", "data")]
 )
 def highlight_selected(selected_prop):
-    base_style = {
-        "background": "white",
-        "border": "1px solid #E9ECEF",
-        "borderRadius": "12px",
-        "padding": "0.75rem",
-        "width": "100%",
-        "height": "100%",
-        "textAlign": "center",
-        "color": "inherit",
-        "boxShadow": "0 2px 12px rgba(0,0,0,0.06)",
-        "transition": "transform 0.2s ease, box-shadow 0.2s ease",
-    }
+    base_style = {"background": "white", "border": "1px solid " + COLORS['border'], "borderRadius": "16px",
+                  "padding": "1.2rem", "width": "100%", "height": "100%", "textAlign": "center", "color": "inherit",
+                  "transition": "all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)"}
     selected_style = base_style.copy()
-    selected_style["border"] = "2px solid #048A81"
-    selected_style["boxShadow"] = "0 0 0 2px rgba(4, 138, 129, 0.2)"
+    selected_style["border"] = f"2px solid {COLORS['primary']}"
+    selected_style["boxShadow"] = f"0 10px 25px rgba(26, 77, 46, 0.15)"
+    selected_style["transform"] = "translateY(-4px)"
+    return [selected_style if prop == selected_prop else base_style for prop in numeric_cols]
 
-    styles = []
-    for prop in ["Length", "Diameter", "Thickness", "Weight", "Slenderness", "Sphericity"]:
-        if prop == selected_prop:
-            styles.append(selected_style)
-        else:
-            styles.append(base_style)
-    return styles
 
-# Callback 6: Set correlation pair from summary click
 pair_inputs = [Input(generate_pair_id(x, y), "n_clicks") for x, y in get_all_pairs()]
 
-@app.callback(
-    Output("correlation-pair", "data"),
-    pair_inputs,
-    prevent_initial_call=True
-)
+
+@app.callback(Output("correlation-pair", "data"), pair_inputs, prevent_initial_call=True)
 def select_correlation_pair(*args):
     ctx = dash.callback_context
-    if not ctx.triggered:
-        return dash.no_update
-    button_id = ctx.triggered[0]["prop_id"].split(".")[0]
-    parts = button_id.split("-")
-    x = parts[2]
-    y = parts[3]
-    return {"x": x, "y": y}
+    if not ctx.triggered: return dash.no_update
+    parts = ctx.triggered[0]["prop_id"].split(".")[0].split("-")
+    return {"x": parts[2], "y": parts[3]}
 
-# Callback 7: Reset correlation from list button
-@app.callback(
-    Output("correlation-pair", "data", allow_duplicate=True),
-    Input("reset-correlation-from-list", "n_clicks"),
-    prevent_initial_call=True
-)
-def reset_correlation_from_list(n_clicks):
-    return None
 
-# Callback 8: Update correlation matrix plot
+@app.callback(Output("correlation-pair", "data", allow_duplicate=True),
+              Input("reset-correlation-from-list", "n_clicks"), prevent_initial_call=True)
+def reset_correlation_from_list(n_clicks): return None
+
+
+# =============================================================================
+# Updated correlation matrix callback (from old code, adapted)
+# =============================================================================
 @app.callback(
     Output("correlation-matrix-plot", "figure"),
-    [Input("size-filter", "value"),
-     Input("correlation-pair", "data")]
+    [Input("size-filter", "value"), Input("correlation-pair", "data")]
 )
 def update_correlation_matrix(selected_groups, pair):
-    if "All" in selected_groups:
-        filtered_df = df
-    else:
-        if not selected_groups:
-            filtered_df = pd.DataFrame(columns=df.columns)
-        else:
-            filtered_df = df[df["Size Group"].isin(selected_groups)]
-
+    filtered_df = df if "All" in selected_groups else pd.DataFrame(columns=df.columns) if not selected_groups else df[
+        df["Size Group"].isin(selected_groups)]
     if filtered_df.empty:
         fig = go.Figure()
         fig.add_annotation(text="No data available", showarrow=False)
         return fig
 
     if pair is None:
+        # Full scatter matrix (old style)
         dimensions = numeric_cols
         n_dim = len(dimensions)
-        fig = make_subplots(rows=n_dim, cols=n_dim, shared_xaxes=False, shared_yaxes=False,
-                            horizontal_spacing=0.02, vertical_spacing=0.02)
+        fig = make_subplots(
+            rows=n_dim, cols=n_dim,
+            shared_xaxes=False, shared_yaxes=False,
+            horizontal_spacing=0.02, vertical_spacing=0.02
+        )
         for i, y_dim in enumerate(dimensions):
             for j, x_dim in enumerate(dimensions):
                 if i == j:
-                    fig.add_trace(go.Histogram(x=filtered_df[x_dim], marker_color=COLORS['secondary'], opacity=0.7, showlegend=False),
-                                  row=i+1, col=j+1)
+                    fig.add_trace(
+                        go.Histogram(x=filtered_df[x_dim], marker_color=COLORS['secondary'], opacity=0.7,
+                                     showlegend=False),
+                        row=i + 1, col=j + 1
+                    )
                 elif i > j:
                     if "All" in selected_groups:
                         for size_group in filtered_df["Size Group"].unique():
                             df_group = filtered_df[filtered_df["Size Group"] == size_group]
-                            fig.add_trace(go.Scatter(x=df_group[x_dim], y=df_group[y_dim], mode='markers', name=size_group,
-                                                      marker=dict(size=8, color=size_colors.get(size_group, COLORS['primary']),
-                                                                  opacity=0.7, line=dict(width=0.5, color='white')),
-                                                      showlegend=(i==1 and j==0)), row=i+1, col=j+1)
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=df_group[x_dim], y=df_group[y_dim],
+                                    mode='markers', name=size_group,
+                                    marker=dict(size=8, color=size_colors.get(size_group, COLORS['primary']),
+                                                opacity=0.7, line=dict(width=0.5, color='white')),
+                                    showlegend=(i == 1 and j == 0)
+                                ),
+                                row=i + 1, col=j + 1
+                            )
                     else:
-                        fig.add_trace(go.Scatter(x=filtered_df[x_dim], y=filtered_df[y_dim], mode='markers',
-                                                  marker=dict(size=8, color=COLORS['secondary'], opacity=0.7, line=dict(width=0.5, color='white')),
-                                                  showlegend=False), row=i+1, col=j+1)
+                        fig.add_trace(
+                            go.Scatter(
+                                x=filtered_df[x_dim], y=filtered_df[y_dim],
+                                mode='markers',
+                                marker=dict(size=8, color=COLORS['secondary'], opacity=0.7,
+                                            line=dict(width=0.5, color='white')),
+                                showlegend=False
+                            ),
+                            row=i + 1, col=j + 1
+                        )
                     if len(filtered_df) > 2:
                         z = np.polyfit(filtered_df[x_dim], filtered_df[y_dim], 1)
                         p = np.poly1d(z)
                         x_line = np.linspace(filtered_df[x_dim].min(), filtered_df[x_dim].max(), 100)
-                        fig.add_trace(go.Scatter(x=x_line, y=p(x_line), mode='lines', line=dict(color=COLORS['accent'], dash='dash', width=2),
-                                                  showlegend=False, hoverinfo='skip'), row=i+1, col=j+1)
+                        fig.add_trace(
+                            go.Scatter(
+                                x=x_line, y=p(x_line), mode='lines',
+                                line=dict(color=COLORS['accent'], dash='dash', width=2),
+                                showlegend=False, hoverinfo='skip'
+                            ),
+                            row=i + 1, col=j + 1
+                        )
                 if i == n_dim - 1:
-                    fig.update_xaxes(title_text=x_dim, row=i+1, col=j+1)
+                    fig.update_xaxes(title_text=x_dim, row=i + 1, col=j + 1)
                 if j == 0:
-                    fig.update_yaxes(title_text=y_dim, row=i+1, col=j+1)
-                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)', row=i+1, col=j+1)
-                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)', row=i+1, col=j+1)
-        fig.update_layout(height=350, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                          font=dict(family="Source Sans Pro", size=10), margin=dict(t=30, b=30, l=50, r=30),
-                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                                      bgcolor='rgba(255,255,255,0.8)') if "All" in selected_groups else {})
+                    fig.update_yaxes(title_text=y_dim, row=i + 1, col=j + 1)
+                fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)', row=i + 1, col=j + 1)
+                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)', row=i + 1, col=j + 1)
+        fig.update_layout(
+            height=400,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(family=FONT_FAMILY, size=10, color=COLORS['text']),
+            margin=dict(t=30, b=30, l=50, r=30),
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                bgcolor='rgba(255,255,255,0.8)'
+            ) if "All" in selected_groups else {}
+        )
     else:
+        # Individual scatter plot for selected pair
         x, y = pair["x"], pair["y"]
         fig = go.Figure()
         if "All" in selected_groups and len(filtered_df["Size Group"].unique()) > 1:
             for size_group in filtered_df["Size Group"].unique():
                 df_group = filtered_df[filtered_df["Size Group"] == size_group]
-                fig.add_trace(go.Scatter(x=df_group[x], y=df_group[y], mode='markers', name=size_group,
-                                          marker=dict(size=10, color=size_colors.get(size_group, COLORS['primary']),
-                                                      opacity=0.7, line=dict(width=1, color='white'))))
+                fig.add_trace(go.Scatter(
+                    x=df_group[x], y=df_group[y],
+                    mode='markers', name=size_group,
+                    marker=dict(size=10, color=size_colors.get(size_group, COLORS['primary']),
+                                opacity=0.7, line=dict(width=1, color='white'))
+                ))
         else:
-            fig.add_trace(go.Scatter(x=filtered_df[x], y=filtered_df[y], mode='markers',
-                                      marker=dict(size=10, color=COLORS['secondary'], opacity=0.7, line=dict(width=1, color='white')),
-                                      showlegend=False))
+            fig.add_trace(go.Scatter(
+                x=filtered_df[x], y=filtered_df[y],
+                mode='markers',
+                marker=dict(size=10, color=COLORS['secondary'], opacity=0.7, line=dict(width=1, color='white')),
+                showlegend=False
+            ))
         if len(filtered_df) > 2:
             z = np.polyfit(filtered_df[x], filtered_df[y], 1)
             p = np.poly1d(z)
             x_line = np.linspace(filtered_df[x].min(), filtered_df[x].max(), 100)
-            fig.add_trace(go.Scatter(x=x_line, y=p(x_line), mode='lines', line=dict(color=COLORS['accent'], dash='dash', width=2),
-                                      name='Trend', showlegend=False))
+            fig.add_trace(go.Scatter(
+                x=x_line, y=p(x_line), mode='lines',
+                line=dict(color=COLORS['accent'], dash='dash', width=2),
+                name='Trend', showlegend=False
+            ))
         r = filtered_df[[x, y]].corr().loc[x, y]
-        fig.add_annotation(xref="paper", yref="paper", x=0.98, y=0.98, text=f"r = {r:.3f}", showarrow=False,
-                           font=dict(size=14, color=COLORS['primary'], family="Source Sans Pro"),
-                           bgcolor="rgba(255,255,255,0.8)", bordercolor=COLORS['border'], borderwidth=1, borderpad=4)
-        fig.update_layout(title=f"{x} vs {y}", xaxis_title=x, yaxis_title=y, height=350,
-                          paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                          font=dict(family="Source Sans Pro", size=12), margin=dict(t=50, b=40, l=60, r=60),
-                          hovermode='closest')
+        fig.add_annotation(
+            xref="paper", yref="paper", x=0.98, y=0.98, text=f"r = {r:.3f}", showarrow=False,
+            font=dict(size=14, color=COLORS['primary'], family=FONT_FAMILY),
+            bgcolor="rgba(255,255,255,0.8)", bordercolor=COLORS['border'], borderwidth=1, borderpad=4
+        )
+        fig.update_layout(
+            title=f"{x} vs {y}", xaxis_title=x, yaxis_title=y, height=400,
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(family=FONT_FAMILY, size=12, color=COLORS['text']),
+            margin=dict(t=50, b=40, l=60, r=60), hovermode='closest'
+        )
         fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)')
         fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)')
     return fig
 
-# Callback 9: Open distribution modal
-@app.callback(
-    [Output("dist-modal", "is_open"),
-     Output("dist-modal-plot", "figure")],
-    [Input("show-all-dist-btn", "n_clicks")],
-    [State("size-filter", "value")],
-    prevent_initial_call=True
-)
+
+# Modals Callbacks
+@app.callback([Output("dist-modal", "is_open"), Output("dist-modal-plot", "figure")],
+              [Input("show-all-dist-btn", "n_clicks")], [State("size-filter", "value")], prevent_initial_call=True)
 def open_dist_modal(n_clicks, selected_groups):
-    if n_clicks is None:
-        return False, go.Figure()
-    if "All" in selected_groups:
-        filtered_df = df
-    else:
-        if not selected_groups:
-            filtered_df = pd.DataFrame(columns=df.columns)
-        else:
-            filtered_df = df[df["Size Group"].isin(selected_groups)]
-    if filtered_df.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="No data available", showarrow=False)
-        return True, fig
-    fig = make_subplots(rows=2, cols=3, subplot_titles=[f"<b>{col}</b>" for col in numeric_cols],
-                        vertical_spacing=0.12, horizontal_spacing=0.08)
+    if n_clicks is None: return False, go.Figure()
+    filtered_df = df if "All" in selected_groups else pd.DataFrame(columns=df.columns) if not selected_groups else df[
+        df["Size Group"].isin(selected_groups)]
+    if filtered_df.empty: return True, go.Figure().add_annotation(text="No data", showarrow=False)
+
+    fig = make_subplots(rows=2, cols=3, subplot_titles=[f"<b>{col}</b>" for col in numeric_cols], vertical_spacing=0.15,
+                        horizontal_spacing=0.08)
     for i, col in enumerate(numeric_cols):
-        row = i // 3 + 1
-        col_pos = i % 3 + 1
-        fig.add_trace(go.Histogram(x=filtered_df[col], marker_color=COLORS['secondary'], opacity=0.85,
-                                    nbinsx=12, marker_line_color='white', marker_line_width=1,
-                                    hovertemplate=f'<b>{col}</b><br>Value: %{{x:.2f}}<br>Count: %{{y}}<extra></extra>'),
-                      row=row, col=col_pos)
-        mean_val = filtered_df[col].mean()
-        fig.add_vline(x=mean_val, line_dash="dash", line_color=COLORS['accent'], line_width=2,
-                      annotation_text=f"μ={mean_val:.1f}", annotation_position="top right", annotation_font_size=10,
-                      row=row, col=col_pos)
-        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)', row=row, col=col_pos)
-        fig.update_yaxes(title_text="Frequency" if col_pos == 1 else "",
-                         showgrid=True, gridwidth=1, gridcolor='rgba(0,0,0,0.05)', row=row, col=col_pos)
+        row, col_pos = i // 3 + 1, i % 3 + 1
+        fig.add_trace(go.Histogram(x=filtered_df[col], marker_color=COLORS['primary'], opacity=0.85, nbinsx=15,
+                                   marker_line_color='white', marker_line_width=1), row=row, col=col_pos)
+        fig.update_xaxes(showgrid=False, zeroline=False, row=row, col=col_pos)
+        fig.update_yaxes(title_text="Frequency" if col_pos == 1 else "", showgrid=True, gridcolor=COLORS['border'],
+                         zeroline=False, row=row, col=col_pos)
     fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                      font=dict(family="Source Sans Pro", size=11), margin=dict(t=40, b=30, l=40, r=30))
+                      font=dict(family=FONT_FAMILY, size=12, color=COLORS['text']), margin=dict(t=40, b=30, l=40, r=30))
     return True, fig
 
-# Callback 10: Close distribution modal
-@app.callback(
-    Output("dist-modal", "is_open", allow_duplicate=True),
-    Input("close-dist-modal-btn", "n_clicks"),
-    State("dist-modal", "is_open"),
-    prevent_initial_call=True
-)
-def close_dist_modal(n_clicks, is_open):
-    return False if n_clicks else is_open
 
-# Callback 11: Open box modal
-@app.callback(
-    [Output("box-modal", "is_open"),
-     Output("box-modal-plot", "figure")],
-    [Input("show-all-box-btn", "n_clicks")],
-    [State("size-filter", "value")],
-    prevent_initial_call=True
-)
+@app.callback(Output("dist-modal", "is_open", allow_duplicate=True), Input("close-dist-modal-btn", "n_clicks"),
+              State("dist-modal", "is_open"), prevent_initial_call=True)
+def close_dist_modal(n_clicks, is_open): return False if n_clicks else is_open
+
+
+@app.callback([Output("box-modal", "is_open"), Output("box-modal-plot", "figure")],
+              [Input("show-all-box-btn", "n_clicks")], [State("size-filter", "value")], prevent_initial_call=True)
 def open_box_modal(n_clicks, selected_groups):
-    if n_clicks is None:
-        return False, go.Figure()
-    if "All" in selected_groups:
-        filtered_df = df
-    else:
-        if not selected_groups:
-            filtered_df = pd.DataFrame(columns=df.columns)
+    if n_clicks is None: return False, go.Figure()
+    filtered_df = df if "All" in selected_groups else pd.DataFrame(columns=df.columns) if not selected_groups else df[
+        df["Size Group"].isin(selected_groups)]
+    if filtered_df.empty: return True, go.Figure().add_annotation(text="No data", showarrow=False)
+
+    fig = make_subplots(rows=2, cols=3, subplot_titles=[f"<b>{col}</b>" for col in numeric_cols], vertical_spacing=0.15,
+                        horizontal_spacing=0.08)
+    for i, col in enumerate(numeric_cols):
+        row, col_pos = i // 3 + 1, i % 3 + 1
+        if "All" in selected_groups and len(filtered_df["Size Group"].unique()) > 1:
+            for sg in ["Small", "Medium", "Large"]:
+                if sg in filtered_df["Size Group"].values:
+                    fig.add_trace(go.Box(y=filtered_df[filtered_df["Size Group"] == sg][col], name=sg, legendgroup=sg,
+                                         showlegend=(i == 0), marker_color=size_colors[sg],
+                                         line=dict(color=size_colors[sg], width=2), boxmean=True), row=row, col=col_pos)
         else:
-            filtered_df = df[df["Size Group"].isin(selected_groups)]
-    if filtered_df.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="No data available", showarrow=False)
-        return True, fig
-    if "All" in selected_groups and len(filtered_df["Size Group"].unique()) > 1:
-        fig = make_subplots(rows=2, cols=3, subplot_titles=[f"<b>{col}</b>" for col in numeric_cols],
-                            vertical_spacing=0.12, horizontal_spacing=0.08)
-        for i, col in enumerate(numeric_cols):
-            row = i // 3 + 1
-            col_pos = i % 3 + 1
-            for size_group in ["Small", "Medium", "Large"]:
-                if size_group in filtered_df["Size Group"].values:
-                    data = filtered_df[filtered_df["Size Group"] == size_group][col]
-                    fig.add_trace(go.Box(y=data, name=size_group, legendgroup=size_group, showlegend=(i == 0),
-                                          marker_color=size_colors[size_group], line=dict(color=size_colors[size_group]),
-                                          boxmean=True, boxpoints='outliers'), row=row, col=col_pos)
-            fig.update_xaxes(showticklabels=False, row=row, col=col_pos)
-            fig.update_yaxes(title_text=col if col_pos == 1 else "",
-                             showgrid=True, gridcolor='rgba(0,0,0,0.05)', row=row, col=col_pos)
-        fig.update_layout(boxmode="group", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                          font=dict(family="Source Sans Pro", size=11), margin=dict(t=40, b=30, l=50, r=30),
-                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
-                          boxgap=0.1, boxgroupgap=0.1)
-    else:
-        fig = make_subplots(rows=2, cols=3, subplot_titles=[f"<b>{col}</b>" for col in numeric_cols],
-                            vertical_spacing=0.12, horizontal_spacing=0.08)
-        for i, col in enumerate(numeric_cols):
-            row = i // 3 + 1
-            col_pos = i % 3 + 1
-            fig.add_trace(go.Box(y=filtered_df[col], marker_color=COLORS['secondary'], line=dict(color=COLORS['secondary']),
-                                  boxmean=True, boxpoints='outliers', name=col), row=row, col=col_pos)
-            fig.update_xaxes(showticklabels=False, row=row, col=col_pos)
-            fig.update_yaxes(title_text=col if col_pos == 1 else "",
-                             showgrid=True, gridcolor='rgba(0,0,0,0.05)', row=row, col=col_pos)
-        fig.update_layout(showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                          font=dict(family="Source Sans Pro", size=11), margin=dict(t=40, b=30, l=50, r=30),
-                          boxgap=0.2)
+            fig.add_trace(
+                go.Box(y=filtered_df[col], marker_color=COLORS['primary'], line=dict(color=COLORS['primary'], width=2),
+                       boxmean=True, name=col), row=row, col=col_pos)
+        fig.update_xaxes(showticklabels=False, zeroline=False, row=row, col=col_pos)
+        fig.update_yaxes(title_text=col if col_pos == 1 else "", showgrid=True, gridcolor=COLORS['border'],
+                         zeroline=False, row=row, col=col_pos)
+    fig.update_layout(boxmode="group", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                      font=dict(family=FONT_FAMILY, size=12, color=COLORS['text']), margin=dict(t=40, b=30, l=50, r=30),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5))
     return True, fig
 
-# Callback 12: Close box modal
-@app.callback(
-    Output("box-modal", "is_open", allow_duplicate=True),
-    Input("close-box-modal-btn", "n_clicks"),
-    State("box-modal", "is_open"),
-    prevent_initial_call=True
-)
-def close_box_modal(n_clicks, is_open):
-    return False if n_clicks else is_open
+
+@app.callback(Output("box-modal", "is_open", allow_duplicate=True), Input("close-box-modal-btn", "n_clicks"),
+              State("box-modal", "is_open"), prevent_initial_call=True)
+def close_box_modal(n_clicks, is_open): return False if n_clicks else is_open
 
 server = app.server  # Expose the underlying Flask server for gunicorn
 
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=8080)
+
 
