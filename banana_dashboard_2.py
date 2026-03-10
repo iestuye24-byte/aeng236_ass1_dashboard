@@ -9,7 +9,7 @@ import os
 import itertools
 
 # =============================================================================
-# Load and prepare data
+# Load and prepare main dataset
 # =============================================================================
 file_path = "dataset-for-dashboard (version 3).xlsb.xlsx"
 if not os.path.exists(file_path):
@@ -27,10 +27,26 @@ except Exception as e:
     df = pd.DataFrame(columns=["Size Group", "Length", "Diameter", "Thickness", "Weight", "Slenderness", "Sphericity"])
     numeric_cols = ["Length", "Diameter", "Thickness", "Weight", "Slenderness", "Sphericity"]
 
-# Overall sample distribution
-size_counts_all = df["Size Group"].value_counts().reset_index() if not df.empty else pd.DataFrame(
-    columns=["Size Group", "count"])
-size_counts_all.columns = ["Size Group", "Count"]
+# =============================================================================
+# Load and prepare density data (static, not affected by filter)
+# =============================================================================
+density_file = "density_data.xlsx"
+if os.path.exists(density_file):
+    df_density = pd.read_excel(density_file, engine="openpyxl")
+    # Rename columns for clarity
+    df_density.columns = ["Sample", "Bulk_density", "Apparent_density"]
+    # Convert to numeric, coerce errors (like the "Mean" row)
+    df_density["Bulk_density"] = pd.to_numeric(df_density["Bulk_density"], errors="coerce")
+    df_density["Apparent_density"] = pd.to_numeric(df_density["Apparent_density"], errors="coerce")
+    # Use only rows with valid numbers (samples 1-10)
+    density_numeric = df_density.dropna(subset=["Bulk_density", "Apparent_density"])
+    bulk_mean = density_numeric["Bulk_density"].mean()
+    bulk_std = density_numeric["Bulk_density"].std()
+    apparent_mean = density_numeric["Apparent_density"].mean()
+    apparent_std = density_numeric["Apparent_density"].std()
+else:
+    bulk_mean = bulk_std = apparent_mean = apparent_std = None
+    print("Warning: density_data.xlsx not found. Density cards will not be displayed.")
 
 # =============================================================================
 # Styling & Theme Configuration
@@ -307,7 +323,8 @@ app.layout = dbc.Container([
         # Footer
         html.Footer([
             html.Hr(style={"margin": "3rem 0 1rem 0", "opacity": "0.1", "borderColor": COLORS['primary']}),
-            html.P(["Dashboard generated using Plotly Dash • Data: n=62 Saba banana samples"], className="text-center",
+            html.P(["Dashboard generated using Plotly Dash • Data: n=62 Saba banana samples • Density from 10 samples"],
+                   className="text-center",
                    style={"fontSize": "0.9rem", "color": COLORS['muted'], "fontWeight": "600", "paddingBottom": "2rem"})
         ])
     ], fluid=True, style={"padding": "0 2% "}),
@@ -340,8 +357,33 @@ app.layout = dbc.Container([
 # =============================================================================
 def generate_pair_id(x, y): return f"corr-btn-{x}-{y}"
 
-
 def get_all_pairs(): return list(itertools.combinations(numeric_cols, 2))
+
+def create_density_card(label, value, std, unit, icon):
+    """Create a non‑clickable card for density metrics."""
+    if value is None:
+        return None
+    return dbc.Col([
+        html.Div([
+            html.Div([html.I(className=f"fas fa-{icon}",
+                             style={"fontSize": "1.8rem", "color": COLORS['secondary'],
+                                    "marginBottom": "0.5rem"})]),
+            html.Div(f"{value:.2f}", className="metric-value"),
+            html.Div(f"± {std:.2f} {unit}",
+                     style={"fontSize": "0.9rem", "color": COLORS['muted'], "fontWeight": "600"}),
+            html.Div(label, className="metric-label mt-2")
+        ], className="metric-card-btn", style={
+            "background": "white",
+            "border": f"1px solid {COLORS['border']}",
+            "borderRadius": "16px",
+            "padding": "1.2rem",
+            "width": "100%",
+            "height": "100%",
+            "textAlign": "center",
+            "cursor": "default",           # non‑clickable
+            "transition": "none",           # no hover effect
+        })
+    ], xs=12, sm=6, md=4, lg=3)  # Responsive widths: 4 cards per row on large
 
 
 @app.callback(
@@ -406,7 +448,7 @@ def update_dashboard(selected_groups, selected_prop):
         return [dbc.Col(empty_msg,
                         width=12)], empty_fig, empty_fig, f"Selected Property: {selected_prop}", empty_msg, pie_fig
 
-    # 2. Metrics Grid
+    # 2. Metrics Grid (main six properties) - unit moved to std line
     means = filtered_df[numeric_cols].mean()
     stds = filtered_df[numeric_cols].std()
     metric_defs = [
@@ -419,6 +461,8 @@ def update_dashboard(selected_groups, selected_prop):
     ]
     metrics_cards = []
     for name, mean_val, std_val, unit, icon, btn_id in metric_defs:
+        # Build std string with unit if present
+        std_str = f"± {std_val:.2f}" + (f" {unit}" if unit else "")
         metrics_cards.append(dbc.Col([
             dbc.Button(
                 id=btn_id,
@@ -426,16 +470,26 @@ def update_dashboard(selected_groups, selected_prop):
                     html.Div([html.I(className=f"fas fa-{icon}",
                                      style={"fontSize": "1.8rem", "color": COLORS['secondary'],
                                             "marginBottom": "0.5rem"})]),
-                    html.Div(f"{mean_val:.2f} {unit}", className="metric-value"),
-                    html.Div(f"± {std_val:.2f}",
+                    html.Div(f"{mean_val:.2f}", className="metric-value"),
+                    html.Div(std_str,
                              style={"fontSize": "0.9rem", "color": COLORS['muted'], "fontWeight": "600"}),
                     html.Div(name, className="metric-label mt-2")
                 ],
                 className="metric-card-btn", n_clicks=0
             )
-        ], xs=6, sm=4, md=4, lg=2))
+        ], xs=12, sm=6, md=4, lg=3))  # Responsive widths: 4 per row on large
 
-    # 3. Individual Histogram
+    # 3. Append density cards (static, if available)
+    if bulk_mean is not None:
+        bulk_card = create_density_card("Bulk Density", bulk_mean, bulk_std, "kg/m³", "weight-hanging")
+        if bulk_card:
+            metrics_cards.append(bulk_card)
+    if apparent_mean is not None:
+        apparent_card = create_density_card("Apparent Density", apparent_mean, apparent_std, "kg/m³", "cube")
+        if apparent_card:
+            metrics_cards.append(apparent_card)
+
+    # 4. Individual Histogram
     indiv_fig = go.Figure(go.Histogram(
         x=filtered_df[selected_prop], marker_color=COLORS['primary'], opacity=0.8, nbinsx=12,
         marker_line_color='white', marker_line_width=2,
@@ -456,7 +510,7 @@ def update_dashboard(selected_groups, selected_prop):
     indiv_fig.update_xaxes(showgrid=False, zeroline=False)
     indiv_fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=COLORS['border'], zeroline=False)
 
-    # 4. Box Plot
+    # 5. Box Plot
     box_fig = go.Figure()
     if "All" in selected_groups and len(filtered_df["Size Group"].unique()) > 1:
         for size_group in ["Small", "Medium", "Large"]:
@@ -481,20 +535,19 @@ def update_dashboard(selected_groups, selected_prop):
     box_fig.update_xaxes(showgrid=False, zeroline=False)
     box_fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=COLORS['border'], zeroline=False)
 
-    # 5. Correlation Summary – Sorted by strongest to weakest
+    # 6. Correlation Summary
     if len(filtered_df) < 2:
         correlation_summary = html.Div([html.I(className="fas fa-info-circle me-2"), "Insufficient data."],
                                        className="text-muted")
     else:
         corr_matrix = filtered_df[numeric_cols].corr()
         pairs = get_all_pairs()
-        # Create list of (abs_r, x, y, r) and sort descending by abs_r
         pair_data = []
         for x, y in pairs:
             r = corr_matrix.loc[x, y]
             abs_r = abs(r)
             pair_data.append((abs_r, x, y, r))
-        pair_data.sort(key=lambda item: item[0], reverse=True)  # sort by absolute r descending
+        pair_data.sort(key=lambda item: item[0], reverse=True)
 
         corr_items = []
         for abs_r, x, y, r in pair_data:
@@ -581,9 +634,6 @@ def select_correlation_pair(*args):
 def reset_correlation_from_list(n_clicks): return None
 
 
-# =============================================================================
-# Updated correlation matrix callback (from old code, adapted)
-# =============================================================================
 @app.callback(
     Output("correlation-matrix-plot", "figure"),
     [Input("size-filter", "value"), Input("correlation-pair", "data")]
@@ -596,8 +646,10 @@ def update_correlation_matrix(selected_groups, pair):
         fig.add_annotation(text="No data available", showarrow=False)
         return fig
 
+    multiple_groups = len(filtered_df["Size Group"].unique()) > 1
+
     if pair is None:
-        # Full scatter matrix (old style)
+        # Full scatter matrix
         dimensions = numeric_cols
         n_dim = len(dimensions)
         fig = make_subplots(
@@ -614,7 +666,7 @@ def update_correlation_matrix(selected_groups, pair):
                         row=i + 1, col=j + 1
                     )
                 elif i > j:
-                    if "All" in selected_groups:
+                    if multiple_groups:
                         for size_group in filtered_df["Size Group"].unique():
                             df_group = filtered_df[filtered_df["Size Group"] == size_group]
                             fig.add_trace(
@@ -623,7 +675,7 @@ def update_correlation_matrix(selected_groups, pair):
                                     mode='markers', name=size_group,
                                     marker=dict(size=8, color=size_colors.get(size_group, COLORS['primary']),
                                                 opacity=0.7, line=dict(width=0.5, color='white')),
-                                    showlegend=(i == 1 and j == 0)
+                                    showlegend=(i == 1 and j == 0)  # legend only in top-right subplot
                                 ),
                                 row=i + 1, col=j + 1
                             )
@@ -665,13 +717,13 @@ def update_correlation_matrix(selected_groups, pair):
             legend=dict(
                 orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
                 bgcolor='rgba(255,255,255,0.8)'
-            ) if "All" in selected_groups else {}
+            ) if multiple_groups else {}
         )
     else:
         # Individual scatter plot for selected pair
         x, y = pair["x"], pair["y"]
         fig = go.Figure()
-        if "All" in selected_groups and len(filtered_df["Size Group"].unique()) > 1:
+        if multiple_groups:
             for size_group in filtered_df["Size Group"].unique():
                 df_group = filtered_df[filtered_df["Size Group"] == size_group]
                 fig.add_trace(go.Scatter(
@@ -780,5 +832,6 @@ server = app.server  # Expose the underlying Flask server for gunicorn
 
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=8080)
+
 
 
